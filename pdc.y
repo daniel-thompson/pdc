@@ -20,10 +20,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 #if defined(HAVE_READLINE)
 #include <readline/readline.h>
 #include <readline/history.h>
+#endif
+
+#if defined(__DJGPP__)
+#include <crt0.h>
+char** __crt0_glob_function(char *d) { return 0; }
+#if !defined(HAVE_READLINE)
+void   __crt0_load_environment_file(char *d) { }
+#endif
+#endif
+
+#if defined(__MINGW32__)
+int _CRT_glob = 0;
 #endif
 
 /* Types ----------------------------------------------------------- */
@@ -44,13 +57,19 @@ typedef struct symbol {
 symbol_t *symbol_table = NULL;
 symbol_t initial_symbols[];
 
-const char *version_string = "0.8.1";
+const char *version_string = "0.9";
 
 int yyargc;
 char **yyargv;
 
 /* are we taking input from the command line? */
 static int input_from_cmdline = 0;
+
+/* are we recovering from an internal error */
+static int internal_error = 0;
+
+#define LONGBITS (sizeof(long) * CHAR_BIT)
+#define CHARMASK ((1 << CHAR_BIT) - 1)
 
 /* Function Prototypes --------------------------------------------- */
 
@@ -112,7 +131,14 @@ expression:
 	| VARIABLE INC expression	{ $$ = $1->value.var += $3; }
 	| VARIABLE DEC expression	{ $$ = $1->value.var -= $3; }
 	| VARIABLE MUL expression	{ $$ = $1->value.var *= $3; }
-	| VARIABLE DIV expression	{ $$ = $1->value.var /= $3; }
+	| VARIABLE DIV expression	{ if (0 != $3) {
+					          $$ = $1->value.var /= $3;
+					  } else {
+					          yyerror("divide by zero error");
+						  internal_error = 1;
+						  $$ = 0;
+					  }
+					}
 	| VARIABLE MOD expression	{ $$ = $1->value.var %= $3; }
 	| VARIABLE AND expression	{ $$ = $1->value.var &= $3; }
 	| VARIABLE XOR expression	{ $$ = $1->value.var ^= $3; }
@@ -126,11 +152,18 @@ expression:
 	| expression '|' expression	{ $$ = $1 | $3; }
 	| expression '^' expression	{ $$ = $1 ^ $3; }
 	| expression '*' expression	{ $$ = $1 * $3; }
-	| expression '/' expression	{ $$ = $1 / $3; }
+	| expression '/' expression	{ if (0 != $3) {
+					          $$ = $1 / $3;
+					  } else {
+						  yyerror("divide by zero error");
+						  internal_error = 1;
+						  $$ = 0;
+					  }
+					}
 	| expression '%' expression	{ $$ = $1 % $3; }
 	| expression '&' expression	{ $$ = $1 & $3; }
 	| expression '<' expression     { $$ = $1 < $3; }
-	| expression '>' expression     { $$ = $1 < $3; }
+	| expression '>' expression     { $$ = $1 > $3; }
 	| expression EQ expression	{ $$ = $1 == $3; }
 	| expression LE expression      { $$ = $1 <= $3; }
 	| expression GE expression      { $$ = $1 >= $3; }
@@ -173,6 +206,40 @@ int yygetc(void)
 	if ('\0' == *pos) {
 		free(line);
 		line = 0;
+		return '\n';
+	}
+
+	return *pos++;
+}
+#elif defined(HAVE_CMDEDIT)
+/* Use the editing and history features provided by CmdEdit. */
+#include <dpmi.h>
+#include <go32.h>
+#include <sys/farptr.h>
+int yygetc(void)
+{
+	static char line[256], *pos = line;
+
+	if (pos == line) {
+		fputs("> ", stdout);
+		fflush(stdout);
+		__dpmi_regs regs;
+		regs.h.ah = 0x0a;	/* buffered input */
+		regs.x.ds = __tb >> 4;
+		regs.x.dx = __tb & 0x0f;
+		_farpokeb(_dos_ds, __tb, 255);
+		_farpokeb(_dos_ds, __tb+1, 0);
+		__dpmi_int(0x21, &regs);
+		dosmemget(__tb+2, 256, line);
+		putchar('\n');
+		pos = line;
+		if ('\x1a' == *pos) {
+			return EOF;
+		}
+	}
+
+	if ('\r' == *pos) {
+		pos = line;
 		return '\n';
 	}
 
@@ -274,7 +341,7 @@ int yylex(void)
 
 		yylval.integer = 0;
 		c = yygetchar();
-		while(EOF != c && isxdigit(c)) {
+		while (EOF != c && isxdigit(c)) {
 			static const char lookup[] = "0123456789abcdef";
 			unsigned long digit = 
 				((unsigned long) strchr(lookup, tolower(c))) -
@@ -448,7 +515,7 @@ symbol_t *getsym(const char *name)
 
 const char *num2str(unsigned long num, int base, int pad) {
 	static const char lookup[] = "0123456789abcdef";
-	static char str[(sizeof(num) * 8) + 1];
+	static char str[LONGBITS + 1];
 	char *pStr, *padStr;
 
 	/* check for unsupported bases */
@@ -457,8 +524,8 @@ const char *num2str(unsigned long num, int base, int pad) {
 		base = 10;
 	} 
 
-	/* and illegal pad lengths pads */
-	if (pad < 1 || pad > (sizeof(num) * 8)) {
+	/* and illegal pad lengths */
+	if (pad < 1 || pad > LONGBITS) {
 		printf("(bad pad, assuming pad 1)\n\t");
 		pad = 1;
 	}
@@ -481,12 +548,26 @@ const char *num2str(unsigned long num, int base, int pad) {
 long ascii(long x)
 {
 	long w;
+	int  b;
 
 	printf("\t'");
-	for (w = x ; w != 0; w <<= 8) {
-		char c = (w >> 24) & 0xff;
-		if (c) {
-			printf("%c", c);
+	if (0 == x) {
+		printf("\\0");
+	} else {
+		/* ignore leading NILs */
+		b = LONGBITS / CHAR_BIT;
+		w = x;
+		while (0 == ((w >> (LONGBITS - CHAR_BIT)) & CHARMASK)) {
+			--b;
+			w <<= CHAR_BIT;
+		}
+		for (; b > 0; w <<= CHAR_BIT, --b) {
+			char c = (w >> (LONGBITS - CHAR_BIT)) & CHARMASK;
+			if (0 == c) {
+				printf("\\0");
+			} else {
+				printf(isprint(c) ? "%c" : "\\x%02x", c);
+			}
 		}
 	}
 	printf("'\n\n");
@@ -517,23 +598,23 @@ long bitfield(long x)
 	N->value.var >>= x;
 
 	/* force logical shift on all machines */
-	N->value.var &= ~(-1 << ((sizeof(x)*8)-x));
+	N->value.var &= ~(-1 << (LONGBITS - x));
 
 	return result;
 }
 
 long decompose(long x)
 {
-	char *seperator = "";
+	char *separator = "";
 	long i;
 
 	if (0 != x) {
 		printf("\t");
 
-		for (i = 8*sizeof(x) - 1; i >= 0; i--) {
+		for (i = LONGBITS - 1; i >= 0; i--) {
 			if (0 != (x & (1<<i))) {
-				printf("%s%ld", seperator, i);
-				seperator = ", ";
+				printf("%s%ld", separator, i);
+				separator = ", ";
 			}
 		}
 
@@ -547,8 +628,25 @@ long decompose(long x)
 
 long lssb(long x)
 {
+	if (0 == x) {
+		return -1;
+	}
+
 	x ^= x-1; /* isolate the least significant bit */
-	return bitcnt(x-1)+1;
+	return bitcnt(x-1);
+}
+
+long mssb(long x)
+{
+	long i;
+
+	for (i = LONGBITS - 1; i >= 0; i--) {
+		if (0 != (x & (1<<i))) {
+			return i;
+		}
+	}
+
+	return -1;
 }
 
 long swap32(long d)
@@ -567,14 +665,20 @@ long quit(long ret)
 
 long print(long x)
 {
-	long base = getsym("obase")->value.var;
+	long obase = getsym("obase")->value.var;
+	int pad = abs(getsym("pad")->value.var);
+
+	if (internal_error) {
+		internal_error = 0;
+		return 0;
+	}
 
 	if (!input_from_cmdline) {
 		printf("\t");
 	}
 
 	/* print the prefixes */
-	switch(base) {
+	switch(obase) {
 	case 16:
 		printf("0x");
 		break;
@@ -587,25 +691,28 @@ long print(long x)
 		printf("0b");
 		break;
 	case 0:
+	case 1:
 		break;
 	default:
-		printf("[base %ld] ", base);
+		printf("[base %ld] ", obase);
 	}
 
 	/* now print the actual values */
-	switch(base) {
+	switch(obase) {
 	case 10:
 		/* print base 10 values directly to keep signedness */
-		printf("%0*ld\n", abs(getsym("pad")->value.var), x);
+		printf("%0*ld\n", pad, x);
+		break;
+	case 1:
+		/* special case base 1 (print dex, hex and binary) */
+		printf("%0*ld\t[0x%0*lx]\t[0b%s]\n", pad, x, pad, x, num2str(x, 2, LONGBITS));
 		break;
 	case 0:
 		/* special case base 0 (print dec and hex) */
-		printf("%0*ld\t[0x%0*lx]\n",
-				abs(getsym("pad")->value.var), x,
-				abs(getsym("pad")->value.var), x);
+		printf("%0*ld\t[0x%0*lx]\n", pad, x, pad, x);
 		break;
 	default:
-		printf("%s\n", num2str(x, base, getsym("pad")->value.var));
+		printf("%s\n", num2str(x, obase, pad));
 	}
 
 	return x;
@@ -625,9 +732,10 @@ void print_help(long mode)
 	if (1 == mode) {
 		symbol_t *sym;
 		printf(
-"Contributers:\n"
+"Contributors:\n"
 "  Daniel Thompson          <d\056thompson\100gmx\056net>\n"
 "  Paul Walker              <paul\100blacksun\056org\056uk>\n"
+"  Jason Hood               <jadoxa\100yahoo\056com\056au>\n"
 "\n"
 		);
 		printf("Variables:\n");
@@ -647,11 +755,11 @@ void print_help(long mode)
 		if (input_from_cmdline) {
 			printf(
 "Usage:\n"
-"  pdc [<expression>] [; <expression>] ...\n"
+"  pdc [<expression>] [, <expression>] ...\n"
 "\n"
-"  Without arguments pdc enters interactive mode otherwise it evaulates its\n"
-"  arguments and prints the result. Expressions are seperated using the ;\n"
-"  operator (e.g. 'pdc obase=2, 4*12'). Only the last expression evaulated\n"
+"  Without arguments pdc enters interactive mode; otherwise it evaluates its\n"
+"  arguments and prints the result. Expressions are separated using the ,\n"
+"  operator (e.g. 'pdc obase=2, 4*12'). Only the last expression evaluated\n"
 "  will be printed automatically. Use the print function to display\n"
 "  intermediate values if required.\n"
 "\n"
@@ -663,7 +771,7 @@ void print_help(long mode)
 		printf(
 "This program is free software; you can redistribute it and/or modify\n"
 "it under the terms of the GNU General Public License as published by\n"
-"the Free Software Foundation; either version 2 of the License , or\n"
+"the Free Software Foundation; either version 2 of the License, or\n"
 "(at your option) any later version.\n"
 "\n"
 "This program is distributed in the hope that it will be useful,\n"
@@ -721,6 +829,7 @@ long name(long ans) \
 }
 
 BASE_FN(dechex, 0)
+BASE_FN(dxb, 1)
 BASE_FN(bin, 2)
 BASE_FN(oct, 8)
 BASE_FN(dec, 10)
@@ -733,7 +842,7 @@ BASE_FN(hex, 16)
 symbol_t initial_symbols[] = {
 { "ans",	"the result of the previous calculation",		VARIABLE, { 0              }, NULL },
 { "ibase",	"the default input base (to force decimal use 0d10)",	VARIABLE, { 10             }, NULL },
-{ "obase",	"the output base (set to zero for combined bases)",	VARIABLE, { 0              }, NULL },
+{ "obase",	"the output base (set to zero or one for combined bases)", VARIABLE, { 0              }, NULL },
 { "pad",	"the amount of zero padding used when displaying numbers", VARIABLE, { 1           }, NULL },
 { "N",          "global variable used by the bitfield function",	VARIABLE, { 0              }, NULL },
 { "abs",	"get the absolute value of x",				FUNCTION, { (long) labs    }, NULL },
@@ -745,9 +854,11 @@ symbol_t initial_symbols[] = {
 { "dec",	"set the output base to decimal",			FUNCTION, { (long) dec     }, NULL },
 { "decompose",	"decompose x into a list of bits set",			FUNCTION, {(long) decompose}, NULL },
 { "default",	"set the default output base (decimal and hex)",	FUNCTION, { (long) dechex  }, NULL },
+{ "dxb",	"output in decimal, hex and binary",			FUNCTION, { (long) dxb     }, NULL },
 { "help",	"display this help message",				FUNCTION, { (long) help    }, NULL },
 { "hex",	"change output base to hex",				FUNCTION, { (long) hex     }, NULL },
 { "lssb",	"get the least significant set bit in x",		FUNCTION, { (long) lssb    }, NULL },
+{ "mssb",	"get the most significant set bit in x",		FUNCTION, { (long) mssb    }, NULL },
 { "oct",	"change output base to octal",				FUNCTION, { (long) oct     }, NULL },
 { "print",	"print an expression (useful for command line work)",   FUNCTION, { (long) print   }, NULL },
 { "quit",	"leave pdc",						FUNCTION, { (long) quit    }, NULL },
@@ -767,7 +878,7 @@ int main(int argc, char *argv[])
 	}
 	symbol_table = &initial_symbols[i-1];
 
-	/* run in non-interactive mode if we have commane line arguments */
+	/* run in non-interactive mode if we have command line arguments */
 	if (argc > 1) {
 		input_from_cmdline = 1;
 		yyargc = argc;
@@ -779,10 +890,12 @@ int main(int argc, char *argv[])
 	/* run the calculator */
 	yyparse();
 
+#if defined(HAVE_READLINE) || (!defined(__DJGPP__) && !defined(__MINGW32__))
 	if (!input_from_cmdline) {
 		/* shutdown cleanly after a ^D */
 		printf("\n");
 	}
+#endif
 
 	return 0;
 }

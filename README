@@ -9,6 +9,8 @@ dealing with mixed bases very easy since it supports contant pefixes
 
 PDC is licenced under the GNU General Public Licence. The latest 
 version of PDC can be downloaded from http://www.redfelineninja.org.uk.
+Jason Hood has ported PDC to DOS/Win32 (in five different ways). These
+ports can be found at http://pdc.adoxa.cjb.net.
 
 
 Features
@@ -36,13 +38,17 @@ you are not using gcc.
 By default PDC is built against the GNU readline library. If your system
 does not have the library installed, set WITHOUT_READLINE on the make
 command line (make WITHOUT_READLINE=1). You'll know if you don't have the
-library due to all the errors. :-)
+library due to all the errors. :-)  DJGPP users who have CmdEdit installed
+can use that instead by setting HAVE_CMDEDIT.
 
-PDC is tested most often on Solaris and GNU/Linux. It written in YACC and C.
+PDC is tested most often on Solaris and GNU/Linux. It's written in YACC and C.
 
 
 Bugs and Feature Requests
 --------------------------
 
 Reproducable bugs and feature requests should be sent to 
-bugs-pdc@redfelinennja.org.uk.
+bugs-pdc@redfelineninja.org.uk.
+
+Comments about the DOS/Win32 ports should be sent to
+jadoxa@yahoo.com.au.

@@ -1,8 +1,20 @@
 ChangeLog
 =========
 
+0.9:
+ - Fixed bug with > being treated as < [jmh]
+ - Modified ascii to use \0 and \xhh for non-printables [jmh]
+ - Fixed lssb to be consistent with decompose [jmh]
+ - lssb 0 will return -1 [jmh]
+ - Added mssb for completeness [jmh]
+ - Base 1 will output dec, hex and bin (dxb function) [jmh]
+ - Use CHAR_BIT from <limits.h>, not 8 [jmh]
+ - Fixed lots typos and spelling [jmh & prw]
+ - Fixed divide by zero bug [prw]
+ - Integrated, corrected, whinged and started on the road to elightenment [drt]
+
 0.8.1:
- - Expanded the grammar a little (, can be used as a seperator) [drt]
+ - Expanded the grammar a little (, can be used as a separator) [drt]
  - Fixed behavior of command line calculations (as prw's original patch) [drt]
  - Fixed a minor bug in the lexing of numeric constants [drt]
  - Fixed a more serious bug in the lexing of bitwise and and or [drt]
@@ -17,13 +29,13 @@ ChangeLog
 0.7:
  - Added bitfield function [drt]
  - Added bits (alias to decompose) [prw]
- - Reworked help system to make everthing automatic [prw]
+ - Reworked help system to make everything automatic [prw]
  - Beefed up the version command a bit [prw]
 
 0.6:
  - Added decompose function [drt]
  - Added ascii function [drt]
- - Added support for character contants [drt]
+ - Added support for character constants [drt]
  - Made the previous answer the default argument [drt]
  - Fixed compiler warning introduced by above [prw]
 
