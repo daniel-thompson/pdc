@@ -4,7 +4,8 @@
  * The programmers desktop calculator. A desktop calculator supporting both
  * shifts and mixed base inputs.
  *
- * Copyright (C) 2001, 2002 Daniel Thompson <see help function for e-mail>
+ * Copyright (C) 2001, 2002, 2003, 2004 
+ *               Daniel Thompson <see help function for e-mail>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -12,19 +13,20 @@
  * (at your option) any later version.
  */
 
-/*
- * Compile with 'yacc pdc.y && cc y.tab.c -o pdc'
- */
-
-/* TODO
- *  - fix backspace to delete as one might expect on GNU/Linux
- */
-
 %{
+/* Includes ---------------------------------------------------------------- */
+
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#if defined(HAVE_READLINE)
+#include <readline/readline.h>
+#include <readline/history.h>
+#endif
+
+/* Types ----------------------------------------------------------- */
 
 typedef struct symbol {
 	const char *name;
@@ -37,8 +39,20 @@ typedef struct symbol {
 	struct symbol *next;
 } symbol_t;
 
+/* Variables ------------------------------------------------------- */
+
 symbol_t *symbol_table = NULL;
 symbol_t initial_symbols[];
+
+const char *version_string = "0.8";
+
+int yyargc;
+char **yyargv;
+
+/* are we taking input from the command line? */
+static int input_from_cmdline = 0;
+
+/* Function Prototypes --------------------------------------------- */
 
 int yyerror(char *s);
 int yylex(void);
@@ -46,9 +60,8 @@ int yyparse();
 symbol_t *getsym(const char *name);
 symbol_t *putsym(const char *name, int type);
 
-const char *num2str(unsigned long num, int base);
+const char *num2str(unsigned long num, int base, int pad);
 
-const char *version_string = "0.7";
 %}
 
 /* yylval's structure */
@@ -83,7 +96,9 @@ line:	  '\n'
 	| expression '\n' { 
 		long base = getsym("obase")->value.var;
 
-		printf("\t");
+		if (!input_from_cmdline) {
+			printf("\t");
+		}
 
 		/* print the prefixes */
 		switch(base) {
@@ -101,30 +116,27 @@ line:	  '\n'
 		case 0:
 			break;
 		default:
-			printf("[base %ld]", base);
+			printf("[base %ld] ", base);
 		}
 
 		/* now print the actual values */
 		switch(base) {
 		case 10:
 			/* print base 10 values directly to keep signedness */
-			printf("%0*ld", abs(getsym("pad")->value.var), $1);
+			printf("%0*ld\n", abs(getsym("pad")->value.var), $1);
 			break;
 		case 0:
 			/* special case base 0 (print dec and hex) */
-			printf("%0*ld\t[0x%0*lx]",
+			printf("%0*ld\t[0x%0*lx]\n",
 					abs(getsym("pad")->value.var), $1,
 					abs(getsym("pad")->value.var), $1);
 			break;
 		default:
-			printf("%0*s", abs(getsym("pad")->value.var), num2str($1, base));
+			printf("%s\n", num2str($1, base, getsym("pad")->value.var));
 		}
 
 		/* Store the result of the last calculation. */
 		getsym("ans")->value.var = $1;
-
-		printf("\n> ");
-		fflush(stdout);
 	}
 	| error '\n'			{ yyerrok; }
 ;
@@ -161,9 +173,80 @@ expression:
 
 %%
 
+/* Functions --------------------------------------------------------------- */
+
+#if defined(HAVE_READLINE)
+int yygetc(void)
+{
+	static char *line, *pos;
+
+	if (!line) {
+		line = pos = readline("> ");
+		if (!line) {
+			return EOF;
+		}
+
+		/* if the line has any text in it, save it in the history */
+		if ('\0' != *line) {
+			add_history(line);
+		}
+	}
+
+	if ('\0' == *pos) {
+		free(line);
+		line = 0;
+		return '\n';
+	}
+
+	return *pos++;
+}
+#else
+int yygetc(void)
+{
+	static int lastch = '\n';
+
+	/* manage the prompt */
+	if ('\n' == lastch) {
+		printf("> ");
+		fflush(stdout);
+	}
+
+	lastch = getchar();
+	return lastch;
+}
+#endif
+
+int yyungetc;
+int yygetchar(void)
+{
+	if ('\0' != yyungetc) {
+		int ch = yyungetc;
+		yyungetc = '\0';
+		return ch;
+	}
+
+	if (input_from_cmdline) {
+		static int arg=1, pos=0;
+
+		if (arg >= yyargc) {
+			return EOF;
+		}
+
+		if ('\0' == yyargv[arg][pos]) {
+			arg++;
+			pos = 0;
+			return '\n';
+		}
+
+		return yyargv[arg][pos++];
+	}
+
+	return yygetc();
+}
+
 int yyerror(char *s)
 {
-	printf("%s\n> ", s);
+	printf("%s\n", s);
 	fflush(stdout);
 	return 0;
 }
@@ -174,7 +257,7 @@ int yylex(void)
 
 	/* ignore whitespace */
 	do {
-		c = getchar();
+		c = yygetchar();
 	} while (strchr(" \t", c));
 
 	/* handle end of input */
@@ -189,9 +272,9 @@ int yylex(void)
 		/* determine the base of this number */
 		if (c != '0') {
 			base = getsym("ibase")->value.var;
-			ungetc(c, stdin);
+			yyungetc = c;
 		} else {
-			c = getchar();
+			c = yygetchar();
 			switch(c) {
 			case 'd':
 			case 'D':
@@ -207,12 +290,12 @@ int yylex(void)
 				break;
 			default:
 				base = 8;
-				ungetc(c, stdin);
+				yyungetc = c;
 			}
 		}
 
 		yylval.integer = 0;
-		c = getchar();
+		c = yygetchar();
 		while(EOF != c && isxdigit(c)) {
 			static const char lookup[] = "0123456789abcdef";
 			unsigned long digit = 
@@ -226,7 +309,7 @@ int yylex(void)
 			yylval.integer *= base;
 			yylval.integer += digit;
 
-			c = getchar();
+			c = yygetchar();
 		}
 
 		switch (c) {
@@ -237,7 +320,7 @@ int yylex(void)
 			yylval.integer *= 1024*1024;
 			break;
 		default:
-			ungetc(c, stdin);
+			yyungetc = c;
 		}
 
 		return INTEGER;
@@ -249,7 +332,7 @@ int yylex(void)
 	if ('\'' == c) {
 		yylval.integer = 0;
 
-		for (c = getchar(); EOF != c && '\'' != c; c = getchar()) {
+		for (c = yygetchar(); EOF != c && '\'' != c; c = yygetchar()) {
 			yylval.integer = (yylval.integer << 8) + (c & 255);
 		}
 
@@ -276,10 +359,10 @@ int yylex(void)
 			}
 
 			buf[i++] = c;
-			c = getchar();
+			c = yygetchar();
 		} while ((EOF != c) && isalnum(c));
 
-		ungetc(c, stdin);
+		yyungetc = c;
 		buf[i] = '\0';
 
 		/* look up (or generate) the symbol */
@@ -292,7 +375,7 @@ int yylex(void)
 
 	/* check for the shift operators */
 	if (strchr("<>&|", c)) {
-		int d = getchar();
+		int d = yygetchar();
 		if (c == d) {
 			switch (c) {
 			case '<':
@@ -305,7 +388,7 @@ int yylex(void)
 				return LOGICAL_OR;
 			}
 		} else {
-			ungetc(d, stdin);
+			yyungetc = c;
 		}
 	}
 
@@ -367,25 +450,36 @@ symbol_t *getsym(const char *name)
 	return NULL;
 }
 
-const char *num2str(unsigned long num, int base) {
+const char *num2str(unsigned long num, int base, int pad) {
 	static const char lookup[] = "0123456789abcdef";
-	static char *pStr, str[(sizeof(num) * 8) + 1];
+	static char str[(sizeof(num) * 8) + 1];
+	char *pStr, *padStr;
 
 	/* check for unsupported bases */
 	if (base < 2 || base >= sizeof(lookup)) {
 		printf("(bad obase, assuming base 10)\n\t");
 		base = 10;
 	} 
+
+	/* and illegal pad lengths pads */
+	if (pad < 1 || pad > (sizeof(num) * 8)) {
+		printf("(bad pad, assuming pad 1)\n\t");
+		pad = 1;
+	}
 	
+	/* pad str with zeros */
+	memset(str, '0', sizeof(str));
+
 	pStr = &str[sizeof(str)];
 	*--pStr = '\0';
+	padStr = pStr - pad;
 
 	do {
 		*--pStr = lookup[num % base];
 		num /= base;
 	} while (num);
 
-	return pStr;
+	return (padStr < pStr ? padStr : pStr);
 }
 
 long ascii(long x)
@@ -480,7 +574,7 @@ void print_help(long mode)
 	printf(
 "pdc %s - the programmers desktop calculator\n"
 "\n"
-"Copyright (C) 2001, 2002 Daniel Thompson <d\056thompson\100gmx\056net>\n"
+"Copyright (C) 2001, 2002, 2003, 2004 Daniel Thompson <d\056thompson\100gmx\056net>\n"
 "This is free software with ABSOLUTELY NO WARRANTY.\n"
 "For details type `warranty'.\n"
 "\n",
@@ -507,6 +601,18 @@ void print_help(long mode)
 			}
 		}
 		printf("\n");
+
+		if (input_from_cmdline) {
+			printf(
+"Usage:\n"
+"  pdc [expression] ...\n"
+"\n"
+"  Note that each argument forms a single expression. For example,\n"
+"  'pdc base=2 \"decompose 0x800c1001\"' will provide different results to\n"
+"  'pdc base=2 decompose 0x800c1001'\n"
+"\n"
+			);
+		}
 	}
 
 	if (2 == mode) {
@@ -527,6 +633,8 @@ void print_help(long mode)
 "	The Free Software Foundation, Inc.\n"
 "	59 Temple Place, Suite 330\n"
 "	Boston, MA 02111, USA.\n"
+"\n"
+"Or see http://www.fsf.org/\n"
 "\n"
 		);
 	}
@@ -581,8 +689,8 @@ BASE_FN(hex, 16)
 symbol_t initial_symbols[] = {
 { "ans",	"the result of the previous calculation",		VARIABLE, { 0              }, NULL },
 { "ibase",	"the default input base (to force decimal use 0d10)",	VARIABLE, { 10             }, NULL },
-{ "obase",	"the output base",					VARIABLE, { 0              }, NULL },
-{ "pad",	"the amount of zero padding used when displaying numbers", VARIABLE, { 0           }, NULL },
+{ "obase",	"the output base (set to zero for combined bases)",	VARIABLE, { 0              }, NULL },
+{ "pad",	"the amount of zero padding used when displaying numbers", VARIABLE, { 1           }, NULL },
 { "N",          "global variable used by the bitfield function",	VARIABLE, { 0              }, NULL },
 { "abs",	"get the absolute value of x",				FUNCTION, { (long) labs    }, NULL },
 { "ascii",	"convert x into a character constant",			FUNCTION, { (long) ascii   }, NULL },
@@ -604,14 +712,9 @@ symbol_t initial_symbols[] = {
 { NULL,		"",							0, 	  { 0              }, NULL }
 };
 
-int main()
+int main(int argc, char *argv[])
 {
 	int i;
-
-	print_help(0);
-
-	printf("> ");
-	fflush(stdout);
 
 	/* setup the initial symbol table */
 	for (i=1; NULL != initial_symbols[i].name; i++) {
@@ -619,11 +722,22 @@ int main()
 	}
 	symbol_table = &initial_symbols[i-1];
 
+	/* run in non-interactive mode if we have commane line arguments */
+	if (argc > 1) {
+		input_from_cmdline = 1;
+		yyargc = argc;
+		yyargv = argv;
+	} else {
+		print_help(0);
+	}
+
 	/* run the calculator */
 	yyparse();
 
-	/* shutdown cleanly after a ^D */
-	printf("\n");
+	if (!input_from_cmdline) {
+		/* shutdown cleanly after a ^D */
+		printf("\n");
+	}
 
 	return 0;
 }

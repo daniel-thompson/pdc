@@ -1,6 +1,12 @@
 ChangeLog
 =========
 
+0.8:
+ - Added readline support [prw]
+ - Added support for calculations from the command line [prw & drt]
+ - Updated help messages to suit the above (try pdc --help) [drt]
+ - Fixed ANSI C compliance issue (incorrect use of printf) [drt]
+
 0.7:
  - Added bitfield function [drt]
  - Added bits (alias to decompose) [prw]

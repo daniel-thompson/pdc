@@ -19,15 +19,24 @@ Features
  * bitwise operators &, |, ^, ~, <<, >>
  * uses ANSI C operator precedence
  * prefix numbers with 0b, 0, 0d and 0x to support binary, octal,
-   decimal and hex regarless of input base
+   decimal and hex regardless of input base
  * output numbers in any number base of 16 or less
  * functions to assist with 'bit bashing'
+ * command line expression evaluation
 
 
 Building PDC
 ------------
 
-PDC is supplied with a simple makefile. It should build with no modifcations on most unix-like operating systems.
+PDC is supplied with a simple makefile. It should build with no
+modifications on most Unix-like operating systems. However, you may need
+to change the compilation flags (for example, to remove -Wall) if
+you are not using gcc.
+
+By default PDC is built against the GNU readline library. If your system
+does not have the library installed, set WITHOUT_READLINE on the make
+command line (make WITHOUT_READLINE=1). You'll know if you don't have the
+library due to all the errors. :-)
 
 PDC is tested most often on Solaris and GNU/Linux. It written in YACC and C.
 
