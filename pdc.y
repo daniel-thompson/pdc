@@ -44,7 +44,7 @@ typedef struct symbol {
 symbol_t *symbol_table = NULL;
 symbol_t initial_symbols[];
 
-const char *version_string = "0.8";
+const char *version_string = "0.8.1";
 
 int yyargc;
 char **yyargv;
@@ -59,8 +59,8 @@ int yylex(void);
 int yyparse();
 symbol_t *getsym(const char *name);
 symbol_t *putsym(const char *name, int type);
-
 const char *num2str(unsigned long num, int base, int pad);
+long print(long x);
 
 %}
 
@@ -75,16 +75,20 @@ const char *num2str(unsigned long num, int base, int pad);
 %type  <integer> expression
 
 /* operators have C conventions for precedence */
-%right '='
+%right '=' INC DEC MUL DIV MOD AND XOR OR LEFT RIGHT
+%right '?' ':'
 %left  LOGICAL_OR
 %left  LOGICAL_AND
 %left  '|'
 %left  '^'
 %left  '&'
+%left  EQ NE
+%left  '<' LE '>' GE
 %left  LEFT_SHIFT RIGHT_SHIFT
 %left  '+' '-'
 %left  '*' '/' '%'
 %left  '!' '~' NEG
+
 
 %% /* YACC grammar follows */
 
@@ -92,52 +96,9 @@ input:	  /* empty */
 	| input line
 ;
 
-line:	  '\n'
-	| expression '\n' { 
-		long base = getsym("obase")->value.var;
-
-		if (!input_from_cmdline) {
-			printf("\t");
-		}
-
-		/* print the prefixes */
-		switch(base) {
-		case 16:
-			printf("0x");
-			break;
-		case 10:
-			break;
-		case 8:
-			printf("0");
-			break;
-		case 2:
-			printf("0b");
-			break;
-		case 0:
-			break;
-		default:
-			printf("[base %ld] ", base);
-		}
-
-		/* now print the actual values */
-		switch(base) {
-		case 10:
-			/* print base 10 values directly to keep signedness */
-			printf("%0*ld\n", abs(getsym("pad")->value.var), $1);
-			break;
-		case 0:
-			/* special case base 0 (print dec and hex) */
-			printf("%0*ld\t[0x%0*lx]\n",
-					abs(getsym("pad")->value.var), $1,
-					abs(getsym("pad")->value.var), $1);
-			break;
-		default:
-			printf("%s\n", num2str($1, base, getsym("pad")->value.var));
-		}
-
-		/* Store the result of the last calculation. */
-		getsym("ans")->value.var = $1;
-	}
+line	: expression '\n'		{ getsym("ans")->value.var = print($1); }
+	| expression ','		{ getsym("ans")->value.var = $1; }
+	| '\n'				/* do nothing */
 	| error '\n'			{ yyerrok; }
 ;
 
@@ -146,9 +107,20 @@ expression:
 	| VARIABLE			{ $$ = $1->value.var; }
 	| FUNCTION '(' expression ')'	{ $$ = (*($1->value.func))($3); }
 	| FUNCTION expression           { $$ = (*($1->value.func))($2); }
-	| FUNCTION			{ $$ = (*($1->value.func))
-						(getsym("ans")->value.var); }
-	| VARIABLE '=' expression	{ $$ = $3; $1->value.var = $3; }
+	| FUNCTION			{ $$ = (*($1->value.func))(getsym("ans")->value.var); }
+	| VARIABLE '=' expression	{ $$ = $1->value.var = $3; }
+	| VARIABLE INC expression	{ $$ = $1->value.var += $3; }
+	| VARIABLE DEC expression	{ $$ = $1->value.var -= $3; }
+	| VARIABLE MUL expression	{ $$ = $1->value.var *= $3; }
+	| VARIABLE DIV expression	{ $$ = $1->value.var /= $3; }
+	| VARIABLE MOD expression	{ $$ = $1->value.var %= $3; }
+	| VARIABLE AND expression	{ $$ = $1->value.var &= $3; }
+	| VARIABLE XOR expression	{ $$ = $1->value.var ^= $3; }
+	| VARIABLE OR expression	{ $$ = $1->value.var |= $3; }
+	| VARIABLE LEFT expression	{ $$ = $1->value.var <<= $3; }
+	| VARIABLE RIGHT expression	{ $$ = $1->value.var >>= $3; }
+	| expression '?' expression ':' expression
+					{ $$ = $1 ? $3 : $5; }
 	| expression '+' expression	{ $$ = $1 + $3; }
 	| expression '-' expression	{ $$ = $1 - $3; }
 	| expression '|' expression	{ $$ = $1 | $3; }
@@ -157,6 +129,12 @@ expression:
 	| expression '/' expression	{ $$ = $1 / $3; }
 	| expression '%' expression	{ $$ = $1 % $3; }
 	| expression '&' expression	{ $$ = $1 & $3; }
+	| expression '<' expression     { $$ = $1 < $3; }
+	| expression '>' expression     { $$ = $1 < $3; }
+	| expression EQ expression	{ $$ = $1 == $3; }
+	| expression LE expression      { $$ = $1 <= $3; }
+	| expression GE expression      { $$ = $1 >= $3; }
+	| expression NE expression	{ $$ = $1 != $3; }
 	| '~' expression		{ $$ = ~$2; }
 	| '-' expression %prec NEG	{ $$ = -$2; }
 	| expression LEFT_SHIFT expression
@@ -229,13 +207,13 @@ int yygetchar(void)
 		static int arg=1, pos=0;
 
 		if (arg >= yyargc) {
-			return EOF;
+			return (arg++ == yyargc ? '\n' : EOF);
 		}
 
 		if ('\0' == yyargv[arg][pos]) {
 			arg++;
 			pos = 0;
-			return '\n';
+			return ' ';
 		}
 
 		return yyargv[arg][pos++];
@@ -303,6 +281,7 @@ int yylex(void)
 				((unsigned long) lookup);
 
 			if (digit >= base) {
+				yyungetc = c;
 				return INTEGER;
 			}
 
@@ -327,7 +306,7 @@ int yylex(void)
 	}
 
 	/* handle single quoted strings including multi-character 
-	 * constants
+	 * constants (a common extension to ANSI C)
 	 */
 	if ('\'' == c) {
 		yylval.integer = 0;
@@ -373,22 +352,39 @@ int yylex(void)
 		return sym->type;
 	}
 
-	/* check for the shift operators */
-	if (strchr("<>&|", c)) {
+	/* check for the shift and logical operators */
+	if (strchr("<>&|=+-*/%^!", c)) {
 		int d = yygetchar();
 		if (c == d) {
 			switch (c) {
-			case '<':
-				return LEFT_SHIFT;
-			case '>':
-				return RIGHT_SHIFT;
-			case '&':
-				return LOGICAL_AND;
-			case '|':
-				return LOGICAL_OR;
+			case '<': 
+			case '>': 
+				d = yygetchar();
+				if ('=' == d) {
+					return ('<' == c ? LEFT : RIGHT);
+				}
+				yyungetc = d;
+				return ('<' == c ? LEFT_SHIFT : RIGHT_SHIFT);
+			case '&': return LOGICAL_AND;
+			case '|': return LOGICAL_OR;
+			case '=': return EQ;
+			}
+		} else if (d == '=') {
+			switch (c) {
+			case '<': return LE;
+			case '>': return GE;
+			case '!': return NE;
+			case '+': return INC;
+			case '-': return DEC;
+			case '*': return MUL;
+			case '/': return DIV;
+			case '%': return MOD;
+			case '&': return AND;
+			case '^': return XOR;
+			case '|': return OR;
 			}
 		} else {
-			yyungetc = c;
+			yyungetc = d;
 		}
 	}
 
@@ -569,6 +565,52 @@ long quit(long ret)
 	return 0;
 }
 
+long print(long x)
+{
+	long base = getsym("obase")->value.var;
+
+	if (!input_from_cmdline) {
+		printf("\t");
+	}
+
+	/* print the prefixes */
+	switch(base) {
+	case 16:
+		printf("0x");
+		break;
+	case 10:
+		break;
+	case 8:
+		printf("0");
+		break;
+	case 2:
+		printf("0b");
+		break;
+	case 0:
+		break;
+	default:
+		printf("[base %ld] ", base);
+	}
+
+	/* now print the actual values */
+	switch(base) {
+	case 10:
+		/* print base 10 values directly to keep signedness */
+		printf("%0*ld\n", abs(getsym("pad")->value.var), x);
+		break;
+	case 0:
+		/* special case base 0 (print dec and hex) */
+		printf("%0*ld\t[0x%0*lx]\n",
+				abs(getsym("pad")->value.var), x,
+				abs(getsym("pad")->value.var), x);
+		break;
+	default:
+		printf("%s\n", num2str(x, base, getsym("pad")->value.var));
+	}
+
+	return x;
+}
+
 void print_help(long mode)
 {
 	printf(
@@ -605,11 +647,13 @@ void print_help(long mode)
 		if (input_from_cmdline) {
 			printf(
 "Usage:\n"
-"  pdc [expression] ...\n"
+"  pdc [<expression>] [; <expression>] ...\n"
 "\n"
-"  Note that each argument forms a single expression. For example,\n"
-"  'pdc base=2 \"decompose 0x800c1001\"' will provide different results to\n"
-"  'pdc base=2 decompose 0x800c1001'\n"
+"  Without arguments pdc enters interactive mode otherwise it evaulates its\n"
+"  arguments and prints the result. Expressions are seperated using the ;\n"
+"  operator (e.g. 'pdc obase=2, 4*12'). Only the last expression evaulated\n"
+"  will be printed automatically. Use the print function to display\n"
+"  intermediate values if required.\n"
 "\n"
 			);
 		}
@@ -705,6 +749,7 @@ symbol_t initial_symbols[] = {
 { "hex",	"change output base to hex",				FUNCTION, { (long) hex     }, NULL },
 { "lssb",	"get the least significant set bit in x",		FUNCTION, { (long) lssb    }, NULL },
 { "oct",	"change output base to octal",				FUNCTION, { (long) oct     }, NULL },
+{ "print",	"print an expression (useful for command line work)",   FUNCTION, { (long) print   }, NULL },
 { "quit",	"leave pdc",						FUNCTION, { (long) quit    }, NULL },
 { "swap32",	"perform a 32-bit byte swap",				FUNCTION, { (long) swap32  }, NULL },
 { "version",	"display version information",				FUNCTION, { (long) version }, NULL },

@@ -1,6 +1,13 @@
 ChangeLog
 =========
 
+0.8.1:
+ - Expanded the grammar a little (, can be used as a seperator) [drt]
+ - Fixed behavior of command line calculations (as prw's original patch) [drt]
+ - Fixed a minor bug in the lexing of numeric constants [drt]
+ - Fixed a more serious bug in the lexing of bitwise and and or [drt]
+ - Added almost all of the remaining C operators [drt]
+
 0.8:
  - Added readline support [prw]
  - Added support for calculations from the command line [prw & drt]
