@@ -28,6 +28,7 @@
 
 typedef struct symbol {
 	const char *name;
+	const char *description;
 	int type;
 	union {
 		long var;
@@ -37,6 +38,7 @@ typedef struct symbol {
 } symbol_t;
 
 symbol_t *symbol_table = NULL;
+symbol_t initial_symbols[];
 
 int yyerror(char *s);
 int yylex(void);
@@ -45,6 +47,8 @@ symbol_t *getsym(const char *name);
 symbol_t *putsym(const char *name, int type);
 
 const char *num2str(unsigned long num, int base);
+
+const char *version_string = "0.7";
 %}
 
 /* yylval's structure */
@@ -129,6 +133,7 @@ expression:
 	  INTEGER			{ $$ = $1; }
 	| VARIABLE			{ $$ = $1->value.var; }
 	| FUNCTION '(' expression ')'	{ $$ = (*($1->value.func))($3); }
+	| FUNCTION expression           { $$ = (*($1->value.func))($2); }
 	| FUNCTION			{ $$ = (*($1->value.func))
 						(getsym("ans")->value.var); }
 	| VARIABLE '=' expression	{ $$ = $3; $1->value.var = $3; }
@@ -341,6 +346,8 @@ symbol_t *putsym(const char *name, int type)
 		break;
 	}
 
+	/* Can't think of a good way to set that at present. */
+	sym->description = NULL;
 	sym->next = symbol_table;
 	symbol_table = sym;
 
@@ -406,6 +413,25 @@ long bitcnt(long x)
 	return b;
 }
 
+long bitfield(long x)
+{
+	symbol_t *N = getsym("N");
+	long result;
+
+	if (0 == N->value.var) {
+		printf("WARNING: N is zero - automatically setting N to ans\n\n");
+		N->value.var = getsym("ans")->value.var;
+	}
+
+	result = N->value.var & ~(-1l << x);
+	N->value.var >>= x;
+
+	/* force logical shift on all machines */
+	N->value.var &= ~(-1 << ((sizeof(x)*8)-x));
+
+	return result;
+}
+
 long decompose(long x)
 {
 	char *seperator = "";
@@ -452,41 +478,35 @@ long quit(long ret)
 void print_help(long mode)
 {
 	printf(
-"pdc 0.6 - the programmers desktop calculator\n"
+"pdc %s - the programmers desktop calculator\n"
 "\n"
 "Copyright (C) 2001, 2002 Daniel Thompson <d\056thompson\100gmx\056net>\n"
 "This is free software with ABSOLUTELY NO WARRANTY.\n"
 "For details type `warranty'.\n"
-"\n"
-	);
+"\n",
+		version_string);
 
-	if (0 == mode) {
+	if (1 == mode) {
+		symbol_t *sym;
 		printf(
 "Contributers:\n"
-"	Daniel Thompson          <d\056thompson\100gmx\056net>\n"
-"	Paul Walker              <paul\100blacksun\056org\056uk>\n"
-"\n"
-"Variables:\n"
-"	ans    - the result of the previous calculation\n"
-"	ibase  - set the default input base (to force decimal use 0d10)\n"
-"	obase  - set the default output base\n"
-"	pad    - set the amount of zero padding used when displaying numbers\n"
-"\n"
-"Functions:\n"
-"	abs(x)    - get the absolute value of x\n"
-"	ascii(x)  - convert x into a character constant\n"
-"	bitcnt(x) - get the population count of x\n"
-"	decompose(x)\n"
-"		  - decompose x into a list set bits\n"
-"	default, bin, oct, dec, hex\n"
-"	          - shortcuts to change the output base\n"
-"	help      - display this help message\n"
-"	lssb(x)   - get the least significant set bit in x\n"
-"	quit      - leave pdc\n"
-"	swap32(x) - perform a 32-bit byte swap\n"
-"	warranty  - display warranty and licencing information\n"
+"  Daniel Thompson          <d\056thompson\100gmx\056net>\n"
+"  Paul Walker              <paul\100blacksun\056org\056uk>\n"
 "\n"
 		);
+		printf("Variables:\n");
+		for (sym=initial_symbols; NULL != sym->name; sym++) {
+			if (VARIABLE == sym->type) {
+				printf("  %-9s - %s\n", sym->name, sym->description);
+			}
+		}
+		printf("\nFunctions:\n");
+		for (sym=initial_symbols; NULL != sym->name; sym++) {
+			if (FUNCTION == sym->type) {
+				printf("  %-9s - %s\n", sym->name, sym->description);
+			}
+		}
+		printf("\n");
 	}
 
 	if (2 == mode) {
@@ -510,11 +530,28 @@ void print_help(long mode)
 "\n"
 		);
 	}
+	if (3 == mode) {
+		symbol_t *sym;
+
+		printf("Compiled:           "__TIME__" "__DATE__"\n");
+		printf("Built-in symbols:  ");
+		for (sym=initial_symbols; NULL != sym->name; sym++) {
+			printf(" %s%s", sym->name, (FUNCTION == sym->type ? "()" : ""));
+		}
+		printf("\n\n");
+	}
+
 }
 
 long help(long ans)
 {
-	print_help(0);
+	print_help(1);
+	return ans;
+}
+
+long version(long ans)
+{
+	print_help(3);
 	return ans;
 }
 
@@ -537,33 +574,41 @@ BASE_FN(oct, 8)
 BASE_FN(dec, 10)
 BASE_FN(hex, 16)
 
+/* Print routine in the help function isn't too clever, so VARIABLE and
+ * FUNCTION should be grouped together, otherwise the display looks a
+ * bit weird. Not hard to fix, but probably more work than it's worth.
+ */
 symbol_t initial_symbols[] = {
-	{ "ibase",   VARIABLE, { 10             }, NULL },
-	{ "obase",   VARIABLE, { 0              }, NULL },
-	{ "pad",     VARIABLE, { 0              }, NULL },
-	{ "ans",     VARIABLE, { 0              }, NULL },
-	{ "abs",     FUNCTION, { (long) labs    }, NULL },
-	{ "ascii",   FUNCTION, { (long) ascii   }, NULL },
-	{ "bin",     FUNCTION, { (long) bin     }, NULL },
-	{ "bitcnt",  FUNCTION, { (long) bitcnt  }, NULL },
-	{ "dec",     FUNCTION, { (long) dec     }, NULL },
-	{ "decompose",FUNCTION,{ (long)decompose}, NULL },
-	{ "default", FUNCTION, { (long) dechex  }, NULL },
-	{ "help",    FUNCTION, { (long) help    }, NULL },
-	{ "hex",     FUNCTION, { (long) hex     }, NULL },
-	{ "lssb",    FUNCTION, { (long) lssb    }, NULL },
-	{ "oct",     FUNCTION, { (long) oct     }, NULL },
-	{ "quit",    FUNCTION, { (long) quit    }, NULL },
-	{ "swap32",  FUNCTION, { (long) swap32  }, NULL },
-	{ "warranty",FUNCTION, { (long) warranty}, NULL },
-	{ NULL,             0, { 0              }, NULL }
+{ "ans",	"the result of the previous calculation",		VARIABLE, { 0              }, NULL },
+{ "ibase",	"the default input base (to force decimal use 0d10)",	VARIABLE, { 10             }, NULL },
+{ "obase",	"the output base",					VARIABLE, { 0              }, NULL },
+{ "pad",	"the amount of zero padding used when displaying numbers", VARIABLE, { 0           }, NULL },
+{ "N",          "global variable used by the bitfield function",	VARIABLE, { 0              }, NULL },
+{ "abs",	"get the absolute value of x",				FUNCTION, { (long) labs    }, NULL },
+{ "ascii",	"convert x into a character constant",			FUNCTION, { (long) ascii   }, NULL },
+{ "bin",	"change output base to binary",				FUNCTION, { (long) bin     }, NULL },
+{ "bitcnt",	"get the population count of x",			FUNCTION, { (long) bitcnt  }, NULL },
+{ "bitfield",	"extract the bottom x bits of N and shift N",		FUNCTION, { (long) bitfield}, NULL },
+{ "bits",	"alias for decompose",					FUNCTION, {(long) decompose}, NULL },
+{ "dec",	"set the output base to decimal",			FUNCTION, { (long) dec     }, NULL },
+{ "decompose",	"decompose x into a list of bits set",			FUNCTION, {(long) decompose}, NULL },
+{ "default",	"set the default output base (decimal and hex)",	FUNCTION, { (long) dechex  }, NULL },
+{ "help",	"display this help message",				FUNCTION, { (long) help    }, NULL },
+{ "hex",	"change output base to hex",				FUNCTION, { (long) hex     }, NULL },
+{ "lssb",	"get the least significant set bit in x",		FUNCTION, { (long) lssb    }, NULL },
+{ "oct",	"change output base to octal",				FUNCTION, { (long) oct     }, NULL },
+{ "quit",	"leave pdc",						FUNCTION, { (long) quit    }, NULL },
+{ "swap32",	"perform a 32-bit byte swap",				FUNCTION, { (long) swap32  }, NULL },
+{ "version",	"display version information",				FUNCTION, { (long) version }, NULL },
+{ "warranty",	"display warranty and licencing information",		FUNCTION, { (long) warranty}, NULL },
+{ NULL,		"",							0, 	  { 0              }, NULL }
 };
 
 int main()
 {
 	int i;
 
-	print_help(1);
+	print_help(0);
 
 	printf("> ");
 	fflush(stdout);
@@ -573,7 +618,7 @@ int main()
 		initial_symbols[i].next = &initial_symbols[i-1];
 	}
 	symbol_table = &initial_symbols[i-1];
-	
+
 	/* run the calculator */
 	yyparse();
 

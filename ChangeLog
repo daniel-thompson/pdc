@@ -1,4 +1,11 @@
 ChangeLog
+=========
+
+0.7:
+ - Added bitfield function [drt]
+ - Added bits (alias to decompose) [prw]
+ - Reworked help system to make everthing automatic [prw]
+ - Beefed up the version command a bit [prw]
 
 0.6:
  - Added decompose function [drt]
