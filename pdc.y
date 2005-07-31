@@ -4,7 +4,7 @@
  * The programmers desktop calculator. A desktop calculator supporting both
  * shifts and mixed base inputs.
  *
- * Copyright (C) 2001, 2002, 2003, 2004 
+ * Copyright (C) 2001, 2002, 2003, 2004, 2005 
  *               Daniel Thompson <see help function for e-mail>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -57,7 +57,7 @@ typedef struct symbol {
 symbol_t *symbol_table = NULL;
 symbol_t initial_symbols[];
 
-const char *version_string = "0.9";
+const char *version_string = "0.9.1";
 
 int yyargc;
 char **yyargv;
@@ -313,6 +313,7 @@ int yylex(void)
 	/* handle numeric types */
 	if (isdigit(c)) {
 		int base;
+		int nDigits;
 
 		/* determine the base of this number */
 		if (c != '0') {
@@ -340,6 +341,7 @@ int yylex(void)
 		}
 
 		yylval.integer = 0;
+		nDigits = 0;
 		c = yygetchar();
 		while (EOF != c && isxdigit(c)) {
 			static const char lookup[] = "0123456789abcdef";
@@ -348,10 +350,10 @@ int yylex(void)
 				((unsigned long) lookup);
 
 			if (digit >= base) {
-				yyungetc = c;
-				return INTEGER;
+				break;
 			}
 
+			nDigits++;
 			yylval.integer *= base;
 			yylval.integer += digit;
 
@@ -365,7 +367,14 @@ int yylex(void)
 		case 'M':
 			yylval.integer *= 1024*1024;
 			break;
+		case 'b':
+		case 'B':
+		case '_':
+			yylval.integer = 1 << yylval.integer;
+			break;
 		default:
+			if (0 == nDigits && 2 == base)
+				yylval.integer = 1;
 			yyungetc = c;
 		}
 

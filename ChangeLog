@@ -1,6 +1,10 @@
 ChangeLog
 =========
 
+0.9.1:
+ - Modified Makefile to support easy building of Win32 (using MingW32, for
+   example) [prw]
+
 0.9:
  - Fixed bug with > being treated as < [jmh]
  - Modified ascii to use \0 and \xhh for non-printables [jmh]
