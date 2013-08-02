@@ -4,7 +4,7 @@
  * The programmers desktop calculator. A desktop calculator supporting both
  * shifts and mixed base inputs.
  *
- * Copyright (C) 2001, 2002, 2003, 2004, 2005 
+ * Copyright (C) 2001-2005, 2013
  *               Daniel Thompson <see help function for e-mail>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -57,7 +57,7 @@ typedef struct symbol {
 symbol_t *symbol_table = NULL;
 symbol_t initial_symbols[];
 
-const char *version_string = "0.9.1";
+const char *version_string = "1.0";
 
 int yyargc;
 char **yyargv;
@@ -370,7 +370,7 @@ int yylex(void)
 		case 'b':
 		case 'B':
 		case '_':
-			yylval.integer = 1 << yylval.integer;
+			yylval.integer = 1l << yylval.integer;
 			break;
 		default:
 			if (0 == nDigits && 2 == base)
@@ -607,7 +607,7 @@ long bitfield(long x)
 	N->value.var >>= x;
 
 	/* force logical shift on all machines */
-	N->value.var &= ~(-1 << (LONGBITS - x));
+	N->value.var &= ~(-1l << (LONGBITS - x));
 
 	return result;
 }
@@ -621,7 +621,7 @@ long decompose(long x)
 		printf("\t");
 
 		for (i = LONGBITS - 1; i >= 0; i--) {
-			if (0 != (x & (1<<i))) {
+			if (0 != (x & (1l<<i))) {
 				printf("%s%ld", separator, i);
 				separator = ", ";
 			}
@@ -650,7 +650,7 @@ long mssb(long x)
 	long i;
 
 	for (i = LONGBITS - 1; i >= 0; i--) {
-		if (0 != (x & (1<<i))) {
+		if (0 != (x & (1l<<i))) {
 			return i;
 		}
 	}
