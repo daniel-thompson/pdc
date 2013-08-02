@@ -1,0 +1,39 @@
+PDC - the programmers desktop calculator
+----------------------------------------
+
+PDC is a desktop calculator similar to bc but with features designed 
+for use by programmers. In particular PDC supports most ANSI C 
+operators including bitwise operators and shifts. PDC also makes 
+dealing with mixed bases very easy since it supports contant pefixes 
+(eg 0xff, 0755).
+
+PDC is licenced under the GNU General Public Licence. The latest 
+version of PDC can be downloaded from http://www.redfelineninja.org.uk.
+
+
+Features
+--------
+
+ * mathematic operators +, -, *, /, %
+ * logic operators &&, ||, !
+ * bitwise operators &, |, ^, ~, <<, >>
+ * uses ANSI C operator precedence
+ * prefix numbers with 0b, 0, 0d and 0x to support binary, octal,
+   decimal and hex regarless of input base
+ * output numbers in any number base of 16 or less
+ * functions to assist with 'bit bashing'
+
+
+Building PDC
+------------
+
+PDC is supplied with a simple makefile. It should build with no modifcations on most unix-like operating systems.
+
+PDC is tested most often on Solaris and GNU/Linux. It written in YACC and C.
+
+
+Bugs and Feature Requests
+--------------------------
+
+Reproducable bugs and feature requests should be sent to 
+bugs-pdc@redfelinennja.org.uk.

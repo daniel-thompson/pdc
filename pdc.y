@@ -40,6 +40,7 @@ symbol_t *symbol_table = NULL;
 
 int yyerror(char *s);
 int yylex(void);
+int yyparse();
 symbol_t *getsym(const char *name);
 symbol_t *putsym(const char *name, int type);
 
@@ -96,7 +97,7 @@ line:	  '\n'
 		case 0:
 			break;
 		default:
-			printf("[base %d]", base);
+			printf("[base %ld]", base);
 		}
 
 		/* now print the actual values */
@@ -128,7 +129,8 @@ expression:
 	  INTEGER			{ $$ = $1; }
 	| VARIABLE			{ $$ = $1->value.var; }
 	| FUNCTION '(' expression ')'	{ $$ = (*($1->value.func))($3); }
-	| FUNCTION			{ $$ = (*($1->value.func))(0); }
+	| FUNCTION			{ $$ = (*($1->value.func))
+						(getsym("ans")->value.var); }
 	| VARIABLE '=' expression	{ $$ = $3; $1->value.var = $3; }
 	| expression '+' expression	{ $$ = $1 + $3; }
 	| expression '-' expression	{ $$ = $1 - $3; }
@@ -231,6 +233,19 @@ int yylex(void)
 			break;
 		default:
 			ungetc(c, stdin);
+		}
+
+		return INTEGER;
+	}
+
+	/* handle single quoted strings including multi-character 
+	 * constants
+	 */
+	if ('\'' == c) {
+		yylval.integer = 0;
+
+		for (c = getchar(); EOF != c && '\'' != c; c = getchar()) {
+			yylval.integer = (yylval.integer << 8) + (c & 255);
 		}
 
 		return INTEGER;
@@ -366,6 +381,22 @@ const char *num2str(unsigned long num, int base) {
 	return pStr;
 }
 
+long ascii(long x)
+{
+	long w;
+
+	printf("\t'");
+	for (w = x ; w != 0; w <<= 8) {
+		char c = (w >> 24) & 0xff;
+		if (c) {
+			printf("%c", c);
+		}
+	}
+	printf("'\n\n");
+
+	return x;
+}
+
 long bitcnt(long x)
 {
 	long b;
@@ -375,11 +406,35 @@ long bitcnt(long x)
 	return b;
 }
 
+long decompose(long x)
+{
+	char *seperator = "";
+	long i;
+
+	if (0 != x) {
+		printf("\t");
+
+		for (i = 8*sizeof(x) - 1; i >= 0; i--) {
+			if (0 != (x & (1<<i))) {
+				printf("%s%ld", seperator, i);
+				seperator = ", ";
+			}
+		}
+
+		printf("\n\n");
+	} else {
+		printf("\tNo set bits\n\n");
+	}
+
+	return x;
+}
+
 long lssb(long x)
 {
 	x ^= x-1; /* isolate the least significant bit */
 	return bitcnt(x-1)+1;
 }
+
 long swap32(long d)
 {
 	return (d >> 24 & 0x000000ff) |
@@ -394,10 +449,10 @@ long quit(long ret)
 	return 0;
 }
 
-long help(long mode)
+void print_help(long mode)
 {
 	printf(
-"pdc 0.5.4 - the programmers desktop calculator\n"
+"pdc 0.6 - the programmers desktop calculator\n"
 "\n"
 "Copyright (C) 2001, 2002 Daniel Thompson <d\056thompson\100gmx\056net>\n"
 "This is free software with ABSOLUTELY NO WARRANTY.\n"
@@ -419,7 +474,12 @@ long help(long mode)
 "\n"
 "Functions:\n"
 "	abs(x)    - get the absolute value of x\n"
+"	ascii(x)  - convert x into a character constant\n"
 "	bitcnt(x) - get the population count of x\n"
+"	decompose(x)\n"
+"		  - decompose x into a list set bits\n"
+"	default, bin, oct, dec, hex\n"
+"	          - shortcuts to change the output base\n"
 "	help      - display this help message\n"
 "	lssb(x)   - get the least significant set bit in x\n"
 "	quit      - leave pdc\n"
@@ -431,34 +491,51 @@ long help(long mode)
 
 	if (2 == mode) {
 		printf(
-"    This program is free software; you can redistribute it and/or modify\n"
-"    it under the terms of the GNU General Public License as published by\n"
-"    the Free Software Foundation; either version 2 of the License , or\n"
-"    (at your option) any later version.\n"
+"This program is free software; you can redistribute it and/or modify\n"
+"it under the terms of the GNU General Public License as published by\n"
+"the Free Software Foundation; either version 2 of the License , or\n"
+"(at your option) any later version.\n"
 "\n"
-"    This program is distributed in the hope that it will be useful,\n"
-"    but WITHOUT ANY WARRANTY; without even the implied warranty of\n"
-"    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the\n"
-"    GNU General Public License for more details.\n"
+"This program is distributed in the hope that it will be useful,\n"
+"but WITHOUT ANY WARRANTY; without even the implied warranty of\n"
+"MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the\n"
+"GNU General Public License for more details.\n"
 "\n"
-"    You should have received a copy of the GNU General Public License\n"
-"    along with this program. If not, write to\n"
+"You should have received a copy of the GNU General Public License\n"
+"along with this program. If not, write to\n"
 "\n"
-"       The Free Software Foundation, Inc.\n"
-"       59 Temple Place, Suite 330\n"
-"       Boston, MA 02111, USA.\n"
+"	The Free Software Foundation, Inc.\n"
+"	59 Temple Place, Suite 330\n"
+"	Boston, MA 02111, USA.\n"
 "\n"
 		);
 	}
-
-	return 0;
 }
 
-long warranty(long dummy)
+long help(long ans)
 {
-	help(2);
-	return 0;
+	print_help(0);
+	return ans;
 }
+
+long warranty(long ans)
+{
+	print_help(2);
+	return ans;
+}
+
+#define BASE_FN(name, base) \
+long name(long ans) \
+{ \
+	getsym("obase")->value.var = base; \
+	return ans; \
+}
+
+BASE_FN(dechex, 0)
+BASE_FN(bin, 2)
+BASE_FN(oct, 8)
+BASE_FN(dec, 10)
+BASE_FN(hex, 16)
 
 symbol_t initial_symbols[] = {
 	{ "ibase",   VARIABLE, { 10             }, NULL },
@@ -466,12 +543,19 @@ symbol_t initial_symbols[] = {
 	{ "pad",     VARIABLE, { 0              }, NULL },
 	{ "ans",     VARIABLE, { 0              }, NULL },
 	{ "abs",     FUNCTION, { (long) labs    }, NULL },
+	{ "ascii",   FUNCTION, { (long) ascii   }, NULL },
+	{ "bin",     FUNCTION, { (long) bin     }, NULL },
 	{ "bitcnt",  FUNCTION, { (long) bitcnt  }, NULL },
+	{ "dec",     FUNCTION, { (long) dec     }, NULL },
+	{ "decompose",FUNCTION,{ (long)decompose}, NULL },
+	{ "default", FUNCTION, { (long) dechex  }, NULL },
 	{ "help",    FUNCTION, { (long) help    }, NULL },
+	{ "hex",     FUNCTION, { (long) hex     }, NULL },
 	{ "lssb",    FUNCTION, { (long) lssb    }, NULL },
-	{ "warranty",FUNCTION, { (long) warranty}, NULL },
+	{ "oct",     FUNCTION, { (long) oct     }, NULL },
 	{ "quit",    FUNCTION, { (long) quit    }, NULL },
 	{ "swap32",  FUNCTION, { (long) swap32  }, NULL },
+	{ "warranty",FUNCTION, { (long) warranty}, NULL },
 	{ NULL,             0, { 0              }, NULL }
 };
 
@@ -479,7 +563,7 @@ int main()
 {
 	int i;
 
-	help(1);
+	print_help(1);
 
 	printf("> ");
 	fflush(stdout);

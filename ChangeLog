@@ -1,0 +1,11 @@
+ChangeLog
+
+0.6:
+ - Added decompose function [drt]
+ - Added ascii function [drt]
+ - Added support for character contants [drt]
+ - Made the previous answer the default argument [drt]
+ - Fixed compiler warning introduced by above [prw]
+
+0.5.4:
+ - first (announced) version of PDC [drt & prw]
