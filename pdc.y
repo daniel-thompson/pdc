@@ -367,6 +367,9 @@ int yylex(void)
 		case 'M':
 			yylval.integer *= 1024*1024;
 			break;
+		case 'G':
+			yylval.integer *= 1024*1024*1024;
+			break;
 		case 'b':
 		case 'B':
 		case '_':
@@ -873,6 +876,7 @@ symbol_t initial_symbols[] = {
 { "warranty",	"display warranty and licencing information",		FUNCTION, { (long) warranty}, NULL },
 { "K",		"Defaults to KiB (1024 bytes)",				VARIABLE, { 1024 },           NULL },
 { "M",		"Defaults to MiB (1048576 bytes)",			VARIABLE, { 1024  * 1024 },   NULL },
+{ "G",		"Defaults to GiB (1073741824 bytes)",			VARIABLE, { 1073741824 },     NULL },
 { NULL,		"",							0, 	  { 0              }, NULL }
 };
 
