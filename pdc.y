@@ -871,8 +871,8 @@ symbol_t initial_symbols[] = {
 { "swap32",	"perform a 32-bit byte swap",				FUNCTION, { (long) swap32  }, NULL },
 { "version",	"display version information",				FUNCTION, { (long) version }, NULL },
 { "warranty",	"display warranty and licencing information",		FUNCTION, { (long) warranty}, NULL },
-{ "K",      "Defaults to kB (1024 bytes)",      VARIABLE,   { 1024 }, NULL },
-{ "M",      "Defaults to MB (1048576 bytes)",      VARIABLE,   { 1024  * 1024 }, NULL },
+{ "K",		"Defaults to KiB (1024 bytes)",				VARIABLE, { 1024 },           NULL },
+{ "M",		"Defaults to MiB (1048576 bytes)",			VARIABLE, { 1024  * 1024 },   NULL },
 { NULL,		"",							0, 	  { 0              }, NULL }
 };
 
