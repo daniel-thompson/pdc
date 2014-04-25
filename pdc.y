@@ -732,7 +732,7 @@ void print_help(long mode)
 	printf(
 "pdc %s - the programmers desktop calculator\n"
 "\n"
-"Copyright (C) 2001, 2002, 2003, 2004 Daniel Thompson <d\056thompson\100gmx\056net>\n"
+"Copyright (C) 2001-2005, 2013 Daniel Thompson <daniel\100redfelineninja\056org\056uk>\n"
 "This is free software with ABSOLUTELY NO WARRANTY.\n"
 "For details type `warranty'.\n"
 "\n",
@@ -788,14 +788,11 @@ void print_help(long mode)
 "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the\n"
 "GNU General Public License for more details.\n"
 "\n"
-"You should have received a copy of the GNU General Public License\n"
-"along with this program. If not, write to\n"
+"You should have received a copy of the GNU General Public License along\n"
+"with this program; if not, write to the Free Software Foundation, Inc.,\n"
+"51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.\n"
 "\n"
-"	The Free Software Foundation, Inc.\n"
-"	59 Temple Place, Suite 330\n"
-"	Boston, MA 02111, USA.\n"
-"\n"
-"Or see http://www.fsf.org/\n"
+"Or see https://www.gnu.org/licenses/old-licenses/gpl-2.0.html\n"
 "\n"
 		);
 	}
